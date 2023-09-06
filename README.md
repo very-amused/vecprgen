@@ -1,0 +1,2 @@
+# vecprgen
+Vector problem generator.
