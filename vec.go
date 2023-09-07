@@ -70,9 +70,8 @@ type vecGenState struct {
 // Generate a set of vectors in equillibrium
 func (set *VecEqSet) Generate(params *Params) {
 	// Initialize generation state
-	set.xState = vecGenState{
-		sign: 1}
-	set.yState = set.xState // Copy
+	set.xState.sign = 1
+	set.yState.sign = 1
 
 	for i := range set.Vecs {
 		v := &set.Vecs[i]
