@@ -2,12 +2,12 @@
 
 go build -o vecprgen || exit 1
 
-n=1000000
+n=100
 
 total=0
 
-while [ $? == 0 ]; do
-	./vecprgen -n $n
+while true; do
+	./vecprgen -debug -n $n || exit 1
 	((total++))
 	echo "Generated $total sets of $n vectors without error"
 done

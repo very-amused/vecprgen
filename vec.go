@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"math"
 	"math/rand"
@@ -13,9 +14,22 @@ func abs(i int) int {
 	return i
 }
 
+func imax(i, j int) int {
+	if i > j {
+		return i
+	}
+	return j
+}
+func imin(i, j int) int {
+	if i < j {
+		return i
+	}
+	return j
+}
+
 // Generate vectors in the inclusive range (0,1)|(1,0) to (100,100)
-const minComponent = 1
-const maxComponent = 100
+const minComponent = 0
+const maxComponent = 50
 
 // Max allowed delta abs value before performing a 2-iter correction to 0---must be in range [2*minComponent, 2*maxComponent]
 // NOTE: should be set below 2*maxComponent to produce better data
@@ -66,10 +80,35 @@ func (set VecEqSet) Generate() {
 
 	for i := range set {
 		v := &set[i]
-		set.genComponent(i, &v.X, &dX, &signX, &cX)
-		set.genComponent(i, &v.Y, &dY, &signY, &cY)
+		if i%2 == 0 {
+			// Gen x component first (x == 0 is possible)
+			set.genComponent(i, &v.X, &dX, &signX, &cX)
+			if v.X == 0 {
+				// Ensure empty vectors aren't generated
+				for v.Y == 0 {
+					set.genComponent(i, &v.Y, &dY, &signY, &cY)
+				}
+			} else {
+				set.genComponent(i, &v.Y, &dY, &signY, &cY)
+			}
+		} else {
+			// Gen y component first (y == 0 is possible)
+			set.genComponent(i, &v.Y, &dY, &signY, &cY)
+			if v.Y == 0 {
+				// Ensure empty vectors aren't generated
+				for v.X == 0 {
+					set.genComponent(i, &v.X, &dX, &signX, &cX)
+				}
+			} else {
+				set.genComponent(i, &v.X, &dX, &signX, &cX)
+			}
+		}
 		if debug {
-			log.Printf("Done with vector %d/%d, dX = %d, cX = %d\n", i+1, len(set), dX, cX)
+			if cX+cY > 0 { // Highlight vectors where component correction is in process
+				fmt.Print("\x1b[34m")
+			}
+			log.Printf("Done with vector %d/%d:\n\tdX = %d, cX = %d\n\tdY = %d, cY = %d\n", i+1, len(set), dX, cX, dY, cY)
+			fmt.Print("\x1b[0m")
 		}
 		v.calculateAngle()
 	}
@@ -77,7 +116,7 @@ func (set VecEqSet) Generate() {
 
 // Generate a vector component with respect to delta, sign, and correction state
 func (set VecEqSet) genComponent(i int, component *int, delta *int, sign *int, correction *uint) {
-	if i == len(set)-1 {
+	if i == len(set)-1 { // Special single iter correction for the last vector of the set
 		*component = -*delta
 		*delta += *component
 		return
@@ -85,38 +124,55 @@ func (set VecEqSet) genComponent(i int, component *int, delta *int, sign *int, c
 	// Generate component value
 	min := minComponent
 	max := maxComponent
+	ad := abs(*delta)
 	if *correction > 0 {
-		// Set min to ensure delta can be corrected to 0 in the remaining iters
 		switch *correction {
 		case 3:
 			fallthrough
 		case 2:
-			if d := abs(*delta) - max; d > 0 {
-				min = d % max
-				if min == 0 {
-					min = minComponent
-				}
+			if d := ad - max; d > 0 && (*correction) == 2 {
+				// Bring abs(*delta) down to at least maxComponent to ensure the final correction is legitimate
+				min = d
+			}
+			if ad <= max {
+				// Make it impossible to fully correct delta before the last correction iteration
+				max = ad - (int(*correction) - 1)
 			}
 		case 1:
-			min = abs(*delta)
-			if min == 0 {
-				min = minComponent
-			}
+			*component = -*delta
+			*delta += *component
+			*correction--
+			*sign = -*sign
+			return
 		}
-	} else if abs(*delta) > max {
+	} else {
+		// Prevent ad from exceeding 2*max
+		if ad >= max {
+			max = (2*max - ad)
+		}
 		// Must end with abs(*delta) <= 100
-		if i == len(set)-2 {
-			max = (abs(*delta) - max) % max
+		/*if i == len(set)-2 {
+			if ad > 0 {
+				// Leave a delta for the final iteration
+				max = (abs(*delta) - (min + 1))
+			} else {
+				*component = 0
+				return
+			}
+			// Generating a penultimate component with a strength of 0 can cause a deadlock
+			if min == 0 {
+				min = 1
+			}
 		} else {
-			max = (2*max - abs(*delta))
-		}
+			// abs(*delta) can never exceed 2*max without introducing several tedious and error-prone modulos above
+		}*/
 	}
 
 	if max == min {
 		*component = (*sign) * min
 	} else {
 		if debug {
-			log.Printf("About to call Intn with value (max-min) = (%d-%d)\n", max, min)
+			//log.Printf("About to call Intn with value (max-min) = (%d-%d)\n", max, min)
 		}
 		*component = (*sign) * (min + rand.Intn(max-min))
 	}
@@ -136,6 +192,6 @@ func (set VecEqSet) genComponent(i int, component *int, delta *int, sign *int, c
 	}
 	// If delta correction is not currently needed, the component sign is flipped each iter to assist with data uniformity
 	if *correction == 0 {
-		*sign *= -1
+		*sign = -*sign
 	}
 }
