@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"math"
 	"math/rand"
 )
@@ -26,20 +27,25 @@ type Vec struct {
 	Y int
 
 	// Vector angle measured CCW from +x axis in degrees
-	Angle float64
+	// Angle is undefined if nil
+	Angle *float64
 }
 
 // Calculate v.Angle from v.X and v.Y
 func (v *Vec) calculateAngle() {
-	v.Angle = math.Atan(float64(abs(v.X)/abs(v.Y))) * (180 / math.Pi)
+	if v.Y == 0 {
+		return
+	}
+	v.Angle = new(float64)
+	*v.Angle = math.Atan(float64(abs(v.X)/abs(v.Y))) * (180 / math.Pi)
 	// Quadrant-correct theta
 	if v.X < 0 { // Q2
-		v.Angle = 180 - v.Angle
+		*v.Angle = 180 - *v.Angle
 		if v.Y < 0 { // Q3
-			v.Angle = 270 - v.Angle
+			*v.Angle = 270 - *v.Angle
 		}
 	} else if v.Y < 0 { // Q4
-		v.Angle = 360 - v.Angle
+		*v.Angle = 360 - *v.Angle
 	}
 }
 
@@ -62,38 +68,68 @@ func (set VecEqSet) Generate() {
 		v := &set[i]
 		set.genComponent(i, &v.X, &dX, &signX, &cX)
 		set.genComponent(i, &v.Y, &dY, &signY, &cY)
+		if debug {
+			log.Printf("Done with vector %d/%d, dX = %d, cX = %d\n", i+1, len(set), dX, cX)
+		}
 		v.calculateAngle()
 	}
 }
 
 // Generate a vector component with respect to delta, sign, and correction state
 func (set VecEqSet) genComponent(i int, component *int, delta *int, sign *int, correction *uint) {
+	if i == len(set)-1 {
+		*component = -*delta
+		*delta += *component
+		return
+	}
 	// Generate component value
 	min := minComponent
 	max := maxComponent
 	if *correction > 0 {
-		max -= int(*correction) - 1
 		// Set min to ensure delta can be corrected to 0 in the remaining iters
 		switch *correction {
+		case 3:
+			fallthrough
 		case 2:
-			if d := abs(*delta) - maxComponent; d > 0 {
-				min = d
+			if d := abs(*delta) - max; d > 0 {
+				min = d % max
+				if min == 0 {
+					min = minComponent
+				}
 			}
 		case 1:
 			min = abs(*delta)
+			if min == 0 {
+				min = minComponent
+			}
+		}
+	} else if abs(*delta) > max {
+		// Must end with abs(*delta) <= 100
+		if i == len(set)-2 {
+			max = (abs(*delta) - max) % max
+		} else {
+			max = (2*max - abs(*delta))
 		}
 	}
-	*component = (*sign) * (min + rand.Intn(max-min))
+
+	if max == min {
+		*component = (*sign) * min
+	} else {
+		if debug {
+			log.Printf("About to call Intn with value (max-min) = (%d-%d)\n", max, min)
+		}
+		*component = (*sign) * (min + rand.Intn(max-min))
+	}
 	*delta += *component
 
 	// Handle delta management and sign flipping behavior
-	if *correction == 0 && (*delta > maxAbsD || (*delta > maxComponent && i == len(set)-3)) {
+	if *correction == 0 && (abs(*delta) > maxAbsD || (abs(*delta) > maxComponent && i == len(set)-3)) {
 		// Perform either 2 or 3 correction iters so that the last iter satisfies (len(set)-1) - i % 2 == 0
 		*correction += 2 + uint(len(set)-(1+i))%2
 		if *delta < 0 {
-			*sign = -1
-		} else {
 			*sign = 1
+		} else {
+			*sign = -1
 		}
 	} else if *correction > 0 {
 		*correction--
