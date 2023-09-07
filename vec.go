@@ -29,7 +29,7 @@ func imin(i, j int) int {
 
 // Generate vectors in the inclusive range (0,1)|(1,0) to (100,100)
 const minComponent = 0
-const maxComponent = 50
+const maxComponent = 10
 
 // Max allowed delta abs value before performing a 2-iter correction to 0---must be in range [2*minComponent, 2*maxComponent]
 // NOTE: should be set below 2*maxComponent to produce better data
@@ -117,6 +117,9 @@ func (set VecEqSet) Generate() {
 // Generate a vector component with respect to delta, sign, and correction state
 func (set VecEqSet) genComponent(i int, component *int, delta *int, sign *int, correction *uint) {
 	if i == len(set)-1 { // Special single iter correction for the last vector of the set
+		if *correction > 0 {
+			*correction = 0
+		}
 		*component = -*delta
 		*delta += *component
 		return
@@ -126,62 +129,38 @@ func (set VecEqSet) genComponent(i int, component *int, delta *int, sign *int, c
 	max := maxComponent
 	ad := abs(*delta)
 	if *correction > 0 {
-		switch *correction {
-		case 3:
-			fallthrough
-		case 2:
-			if d := ad - max; d > 0 && (*correction) == 2 {
-				// Bring abs(*delta) down to at least maxComponent to ensure the final correction is legitimate
-				min = d
-			}
-			if ad <= max {
-				// Make it impossible to fully correct delta before the last correction iteration
-				max = ad - (int(*correction) - 1)
-			}
-		case 1:
-			*component = -*delta
-			*delta += *component
-			*correction--
-			*sign = -*sign
-			return
+		if ad <= max {
+			// Make it impossible to fully correct delta before the last correction iteration
+			max = ad - (int(*correction) - 1)
 		}
-	} else {
+		if d := ad - max; d > 0 && (*correction) == 2 {
+			// Bring abs(*delta) down to at least maxComponent to ensure the last iteration
+			// corrects delta such that abs(delta) is contained within [min, maxComponent]
+			min = d
+		}
+	} else if ad >= max {
 		// Prevent ad from exceeding 2*max
-		if ad >= max {
-			max = (2*max - ad)
-		}
-		// Must end with abs(*delta) <= 100
-		/*if i == len(set)-2 {
-			if ad > 0 {
-				// Leave a delta for the final iteration
-				max = (abs(*delta) - (min + 1))
-			} else {
-				*component = 0
-				return
-			}
-			// Generating a penultimate component with a strength of 0 can cause a deadlock
-			if min == 0 {
-				min = 1
-			}
-		} else {
-			// abs(*delta) can never exceed 2*max without introducing several tedious and error-prone modulos above
-		}*/
+		max = (2*max - ad)
 	}
 
 	if max == min {
 		*component = (*sign) * min
 	} else {
-		if debug {
-			//log.Printf("About to call Intn with value (max-min) = (%d-%d)\n", max, min)
+		for {
+			*component = (*sign) * (min + rand.Intn(max-min))
+			// Ensure the penultimate vector doesn't set delta to 0 (which can cause deadlocks)
+			// or cause delta to exceed the maximum magnitude
+			if i != len(set)-2 || (*component != -*delta && abs(*delta+*component) <= max) {
+				break
+			}
 		}
-		*component = (*sign) * (min + rand.Intn(max-min))
 	}
 	*delta += *component
+	ad = abs(*delta)
 
 	// Handle delta management and sign flipping behavior
-	if *correction == 0 && (abs(*delta) > maxAbsD || (abs(*delta) > maxComponent && i == len(set)-3)) {
-		// Perform either 2 or 3 correction iters so that the last iter satisfies (len(set)-1) - i % 2 == 0
-		*correction += 2 + uint(len(set)-(1+i))%2
+	if *correction == 0 && (ad > maxAbsD || (ad > maxComponent && i == len(set)-3)) {
+		*correction += 2
 		if *delta < 0 {
 			*sign = 1
 		} else {
