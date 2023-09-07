@@ -21,13 +21,24 @@ func main() {
 		nVec = 2
 		fmt.Println("Invalid vector count, defaulting to 2")
 	}
+	// Parse params
+	params := &Params{}
+	params.SetDefault()
+	var err error
+	// Parse params.ini if present
+	const iniFile = "params.ini"
+	if _, err = os.Stat(iniFile); err == nil {
+		if err = params.Parse(iniFile); err != nil {
+			fmt.Printf("Error parsing %s: %s.\n", iniFile, err)
+		}
+	}
 
 	// Generate vectors as whole integers with a minimum magnitude of 1
-	set := make(VecEqSet, nVec)
-	set.Generate()
+	set := VecEqSet{Vecs: make([]Vec, nVec)}
+	set.Generate(params)
 	// Get component sums
 	var iSum, jSum int
-	for _, v := range set {
+	for _, v := range set.Vecs {
 		//fmt.Printf("Vector %d = %di + %dj\n", i+1, v.X, v.Y)
 		iSum += v.X
 		jSum += v.Y

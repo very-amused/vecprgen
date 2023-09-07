@@ -14,19 +14,6 @@ func abs(i int) int {
 	return i
 }
 
-func imax(i, j int) int {
-	if i > j {
-		return i
-	}
-	return j
-}
-func imin(i, j int) int {
-	if i < j {
-		return i
-	}
-	return j
-}
-
 // Generate vectors in the inclusive range (0,1)|(1,0) to (100,100)
 const minComponent = 0
 const maxComponent = 10
@@ -64,50 +51,60 @@ func (v *Vec) calculateAngle() {
 }
 
 // VecEqSet - A set of vectors in equillibrium
-type VecEqSet []Vec
+type VecEqSet struct {
+	Vecs []Vec
+
+	params *Params
+
+	// Generation state
+	xState vecGenState
+	yState vecGenState
+}
+
+type vecGenState struct {
+	delta      int  // Deltas used to ensure equillibrium
+	sign       int  // +/- sign, must be initialized to +-1 before genComponent is called
+	correction uint // Count of remaining correction iterations for which signX/Y will stay constant respectively
+}
 
 // Generate a set of vectors in equillibrium
-func (set VecEqSet) Generate() {
-	var (
-		// Deltas used to ensure equillibrium
-		dX, dY int
-		// +/- signs, must be set to -1 or 1
-		signX int = 1
-		signY int = 1
-		// Count of remaining correction iterations for which signX and/or signY will not change respectively
-		cX, cY uint
-	)
+func (set *VecEqSet) Generate(params *Params) {
+	// Initialize generation state
+	set.xState = vecGenState{
+		sign: 1}
+	set.yState = set.xState // Copy
 
-	for i := range set {
-		v := &set[i]
+	for i := range set.Vecs {
+		v := &set.Vecs[i]
 		if i%2 == 0 {
 			// Gen x component first (x == 0 is possible)
-			set.genComponent(i, &v.X, &dX, &signX, &cX)
+			set.genComponent(i, &v.X, &set.xState)
 			if v.X == 0 {
 				// Ensure empty vectors aren't generated
 				for v.Y == 0 {
-					set.genComponent(i, &v.Y, &dY, &signY, &cY)
+					set.genComponent(i, &v.Y, &set.yState)
 				}
 			} else {
-				set.genComponent(i, &v.Y, &dY, &signY, &cY)
+				set.genComponent(i, &v.Y, &set.yState)
 			}
 		} else {
 			// Gen y component first (y == 0 is possible)
-			set.genComponent(i, &v.Y, &dY, &signY, &cY)
+			set.genComponent(i, &v.Y, &set.yState)
 			if v.Y == 0 {
 				// Ensure empty vectors aren't generated
 				for v.X == 0 {
-					set.genComponent(i, &v.X, &dX, &signX, &cX)
+					set.genComponent(i, &v.X, &set.xState)
 				}
 			} else {
-				set.genComponent(i, &v.X, &dX, &signX, &cX)
+				set.genComponent(i, &v.X, &set.xState)
 			}
 		}
 		if debug {
-			if cX+cY > 0 { // Highlight vectors where component correction is in process
+			if set.xState.correction > 0 || set.yState.correction > 0 { // Highlight vectors where component correction is in process
 				fmt.Print("\x1b[34m")
 			}
-			log.Printf("Done with vector %d/%d:\n\tdX = %d, cX = %d\n\tdY = %d, cY = %d\n", i+1, len(set), dX, cX, dY, cY)
+			log.Printf("Done with vector %d/%d:\n\tdX = %d, cX = %d\n\tdY = %d, cY = %d\n",
+				i+1, len(set.Vecs), set.xState.delta, set.xState.correction, set.yState.delta, set.yState.correction)
 			fmt.Print("\x1b[0m")
 		}
 		v.calculateAngle()
@@ -115,8 +112,11 @@ func (set VecEqSet) Generate() {
 }
 
 // Generate a vector component with respect to delta, sign, and correction state
-func (set VecEqSet) genComponent(i int, component *int, delta *int, sign *int, correction *uint) {
-	if i == len(set)-1 { // Special single iter correction for the last vector of the set
+func (set *VecEqSet) genComponent(i int, component *int, state *vecGenState) {
+	delta := &state.delta
+	sign := &state.sign
+	correction := &state.correction
+	if i == len(set.Vecs)-1 { // Special single iter correction for the last vector of the set
 		if *correction > 0 {
 			*correction = 0
 		}
@@ -150,7 +150,7 @@ func (set VecEqSet) genComponent(i int, component *int, delta *int, sign *int, c
 			*component = (*sign) * (min + rand.Intn(max-min))
 			// Ensure the penultimate vector doesn't set delta to 0 (which can cause deadlocks)
 			// or cause delta to exceed the maximum magnitude
-			if i != len(set)-2 || (*component != -*delta && abs(*delta+*component) <= max) {
+			if i != len(set.Vecs)-2 || (*component != -*delta && abs(*delta+*component) <= max) {
 				break
 			}
 		}
@@ -159,7 +159,7 @@ func (set VecEqSet) genComponent(i int, component *int, delta *int, sign *int, c
 	ad = abs(*delta)
 
 	// Handle delta management and sign flipping behavior
-	if *correction == 0 && (ad > maxAbsD || (ad > maxComponent && i == len(set)-3)) {
+	if *correction == 0 && (ad > maxAbsD || (ad > maxComponent && i == len(set.Vecs)-3)) {
 		*correction += 2
 		if *delta < 0 {
 			*sign = 1
