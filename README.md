@@ -1,2 +1,2 @@
 # vecprgen
-Vector problem generator.
+Vector problem generator. WIP
